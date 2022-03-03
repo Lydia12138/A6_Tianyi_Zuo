@@ -1,0 +1,150 @@
+---
+title: "A6_Tianyi_Zuo"
+author: "Tianyi Zuo"
+date: "2022/3/1"
+output: html_document
+---
+
+### GitHub username: Lydia12138
+### Date: 2022-01-26 Repo:https://github.com/Lydia12138/A6_Tianyi_Zuo
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## load the packages
+```{r message=FALSE, warning=FALSE}
+library(BiocManager)
+library(genbankr)
+library(Biostrings)
+library(annotate) # pairwise alignments
+library(ape) # Multiple Alignments
+library(muscle) # Align the sequences
+library(rentrez)
+library(ggtree)# phylogenetic tree
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+```
+
+
+## Input the Sequence
+```{r}
+# load the sequence : >human isolate, unknown sequence
+UKSeq <-"ATGTCTGATAATGGACCCCAAAATCAGCGAAATGCACCCCGCATTACGTTTGGTGGACCCTCAGATTCAACTGGCAGTAACCAGAATGGAGAACGCAGTGGGGCGCGATCAAAACAACGTCGGCCCCAAGGTTTACCCAATAATACTGCGTCTTGGTTCACCGCTCTCACTCAACATGGCAAGGAAGACCTTAAATTCCCTCGAGGACAAGGCGTTCCAATTAACACCAATAGCAGTCCAGATGACCAAATTGGCTACTACCGAAGAGCTACCAGACGAATTCGTGGTGGTGACGGTAAAATGAAAGATCTCAGTCCAAGATGGTATTTCTACTACCTAGGAACTGGGCCAGAAGCTGGACTTCCCTATGGTGCTAACAAAGACGGCATCATATGGGTTGCAACTGAGGGAGCCTTGAATACACCAAAAGATCACATTGGCACCCGCAATCCTGCTAACAATGCTGCAATCGTGCTACAACTTCCTCAAGGAACAACATTGCCAAAAGGCTTCTACGCAGAAGGGAGCAGAGGCGGCAGTCAAGCCTCTTCTCGTTCCTCATCACGTAGTCGCAACAGTTCAAGAAATTCAACTCCAGGCAGCAGTAGGGGAACTTCTCCTGCTAGAATGGCTGGCAATGGCGGTGATGCTGCTCTTGCTTTGCTGCTGCTTGACAGATTGAACCAGCTTGAGAGCAAAATGTCTGGTAAAGGCCAACAACAACAAGGCCAAACTGTCACTAAGAAATCTGCTGCTGAGGCTTCTAAGAAGCCTCGGCAAAAACGTACTGCCACTAAAGCATACAATGTAACACAAGCTTTCGGCAGACGTGGTCCAGAACAAACCCAAGGAAATTTTGGGGACCAGGAACTAATCAGACAAGGAACTGATTACAAACATTGGCCGCAAATTGCACAATTTGCCCCCAGCGCTTCAGCGTTCTTCGGAATGTCGCGCATTGGCATGGAAGTCACACCTTCGGGAACGTGGTTGACCTACACAGGTGCCATCAAATTGGATGACAAAGATCCAAATTTCAAAGATCAAGTCATTTTGCTGAATAAGCATATTGACGCATACAAAACATTCCCACCAACAGAGCCTAAAAAGGACAAAAAGAAGAAGGCTGATGAAACTCAAGCCTTACCGCAGAGACAGAAGAAACAGCAAACTGTGACTCTTCTTCCTGCTGCAGATTTGGATGATTTCTCCAAACAATTGCAACAATCCATGAGCAGTGCTGACTCAACTCAGGCCTAA"
+```
+
+## Pairwise Alignments: BLAST
+```{r}
+UKGbkBLAST<-blastSequences(paste(UKSeq),as = 'data.frame',
+                           hitListSize = 20, timeout = 600)
+```
+
+## Mutiple Alignment
+```{r}
+# Make a simple vector of accession numbers from the BLAST results above and make them into a simple data frame object with two columns
+UKHitsDF<-data.frame(ID=UKGbkBLAST$Hit_accession,Seq=UKGbkBLAST$Hsp_hseq,
+                     stringsAsFactors = FALSE)
+head(UKHitsDF)
+```
+
+ID of each sequences is their BLAST hit accession. We can fins all the sequences that the BLAST finds are virtually the same, that means that there are multiple accessions in NCBI for the same DNA sequence
+
+
+```{r}
+## check the length of each sequence
+UKGbkBLAST$Hit_len
+```
+
+## Determine the species of the sequence
+```{r}
+#check the species of each sequence with their hit accession from Genebank.
+UKHitSeqs<-read.GenBank(UKGbkBLAST$Hit_accession)
+attr(UKHitSeqs,"species")
+```
+
+According to the length info and gene bank species result, we can identified this isolated sequence is identified as coronavirus 2 strain which relative with severe acute respiratory syndrome. 
+
+
+```{r}
+# Conduct the DNA mutiple Alignment
+CVHitsDNAstring <- UKHitsDF$Seq %>% # Start with the sequences
+  as.character %>% # Convert to strings
+  lapply(.,paste0,collapse="") %>% # Collapse each sequence to a single string
+  unlist %>% # Flatten list to a vector
+  DNAStringSet # Convert vector to DNAStringSet object
+
+names(CVHitsDNAstring)<-paste(1:nrow(UKHitsDF),UKHitsDF$ID,sep="_") #Give each sequence a unique names
+
+CVAlign<-muscle::muscle(stringset=CVHitsDNAstring, quiet=T)
+
+CVAlign
+```
+
+## Check the Aligment
+```{r}
+# According to the Aligment graph, there is no large gaps exist. Here check the sequence again to make sure there is no big gaps.
+SeqLen<-as.numeric(lapply(CVHitsDNAstring,length))
+qplot(SeqLen)+theme_bw()
+
+```
+
+Figure 1. The bar graph shows the the distribution of the Sequences length.
+
+From the alignment result and the distribution, it looks like there is neither large gap nor any new sequence insertions over all the 20 subject sequences. This step shows that there is no need to remove any sequence fragment.
+
+## Distance Matrix
+```{r}
+# Convert the DNAMultipleAlignment object into DNAbin
+CVAlign <- as.DNAbin(CVAlign)
+CVDM<-dist.dna(CVAlign, model="K80")
+
+CVDMmat<-as.matrix(CVDM)
+
+PDat<-melt(CVDMmat)
+
+
+ggplot(data = PDat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile()+scale_fill_gradientn(colours=c("white","blue","green","red"))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+```
+
+Figure 2. Pairwise distance matrices for 20 genes using data from the GeneBank.X-axis and Y-axis represent gene accession, and colour represent the different distance. 
+
+From the graph, we can find that there is no any distance among the 20 subject sequence. That means all of these sequence from same species and share same distance with each other. 
+
+
+## Build Phylogeny
+```{r}
+CVTree<-nj(CVDM)
+ggtree(CVTree)
+```
+
+Figure 3.  Phylogenetic tree of 20 viruse sequences filter out human DNA constructed by a neighbor-joining method. 
+
+There not exist any branch in Phylogenetic tree, because the branch lengths in the above graph are based on the pairwise distance matrix.  According to the Phylogenetic tree and distance matrix, it indicates that these sequences are closely related and fall into same taxon. 
+
+
+```{r}
+#remove the branch length info to focus on the relationships
+ggtree(CVTree,branch.length='none')+ geom_tiplab()
+```
+
+Figure 4. Phylogenetic tree of Viruse filters out human DNA constructed by a neighbor-joining method without brach length. 
+
+Figure 4 remove the branch length info to focus on the relationships. It suggested clear relationship between these 20 sequence, which fall into same strain with a number of differences.
+
+
+```{r}
+# Because having trouble reading the labels, here exporting to a pdf file
+pdf("A6_Tianyi_Zuo_Cov2_Virus_tree.pdf",width=8,height=4)
+ggtree(CVTree,branch.length='none',layout="circular") + geom_tiplab()
+dev.off()
+```
+
+```{r}
+# save the tree
+write.tree(CVTree,"A6_Tianyi_Zuo_Cov2_Virus_tree.tre")
+```
+
